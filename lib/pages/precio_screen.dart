@@ -1,0 +1,447 @@
+import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_application_login/auth/auth_service.dart';
+import 'package:flutter_application_login/auth/login_screen.dart';
+import 'package:flutter_application_login/home_screen.dart';
+import 'package:flutter_application_login/pages/confirmar_screen.dart';
+import 'package:flutter_application_login/pages/cuenta_screen.dart';
+import 'package:flutter_application_login/pages/estado_screen.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:geocoding/geocoding.dart';
+
+class PrecioScreen extends StatefulWidget {
+  final String origen;
+  final String destino;
+  final String envio;
+  final String medida;
+  final User user;
+
+  const PrecioScreen(
+      {super.key,
+      required this.origen,
+      required this.destino,
+      required this.envio,
+      required this.medida,
+      required this.user});
+
+  @override
+  State<PrecioScreen> createState() => _PrecioScreenState();
+}
+
+class _PrecioScreenState extends State<PrecioScreen> {
+  String _currentAddress = "Obteniendo ubicación...";
+
+  @override
+  void initState() {
+    super.initState();
+    _getCurrentLocation();
+  }
+
+  Future<void> _getCurrentLocation() async {
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // Verifica si el servicio de ubicación está habilitado
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _currentAddress = "Servicio de ubicación deshabilitado";
+      });
+      return;
+    } else {
+      setState(() {
+        _currentAddress = "Obteniendo ubicación...";
+      });
+    }
+
+    // Solicita permisos de ubicación
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        setState(() {
+          _currentAddress = "Permiso de ubicación denegado";
+        });
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      setState(() {
+        _currentAddress =
+            "Permiso de ubicación denegado permanentemente. Habilítalo en la configuración.";
+      });
+      return;
+    }
+
+    // Obtén la posición actual
+    Position position = await Geolocator.getCurrentPosition(
+      // ignore: deprecated_member_use
+      desiredAccuracy: LocationAccuracy.high,
+      // ignore: deprecated_member_use
+      forceAndroidLocationManager:
+          true, // Forzar el uso del administrador de ubicación
+    );
+
+    // Imprimir las coordenadas
+    // print("Latitud: ${position.latitude}, Longitud: ${position.longitude}");
+
+    try {
+      List<Placemark> placemarks =
+          await placemarkFromCoordinates(position.latitude, position.longitude);
+
+      if (placemarks.isNotEmpty) {
+        Placemark place = placemarks.first;
+        // print("Placemark seleccionado: ${place.toJson()}");
+
+        setState(() {
+          _currentAddress =
+              "${place.street}, ${place.locality}, ${place.administrativeArea}, ${place.country}";
+        });
+      } else {
+        setState(() {
+          _currentAddress = "No se encontraron datos de dirección.";
+        });
+      }
+    } catch (e) {
+      print("Error al convertir coordenadas: $e");
+    }
+  }
+
+  String _getPesoMaximo(String envio) {
+    switch (envio.toLowerCase()) {
+      case "paquete pequeño":
+        return "1000 Grs";
+      case "paquete mediano":
+        return "2000 Grs";
+      case "paquete grande":
+        return "3000 Grs";
+      default:
+        return "0 Grs"; // O un valor por defecto si el envío no es válido
+    }
+  }
+
+  double _obtenerPrecio(String medida) {
+    switch (medida.toLowerCase()) {
+      case "paquete pequeño":
+        return 1500.0;
+      case "paquete mediano":
+        return 2500.0;
+      case "paquete grande":
+        return 3500.0;
+      case "trámite personal":
+        return 2000.0;
+      case "trámite bancario":
+        return 2500.0;
+      case "trámite mensajería":
+        return 3000.0;
+      case "trámite salud":
+        return 3000.0;
+      case "trámite laboral":
+        return 3500.0;
+      default:
+        return 0.0; // Precio por defecto en caso de no coincidir con ningún caso
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final auth = AuthService();
+    return Scaffold(
+      backgroundColor: const Color.fromRGBO(85, 166, 227, 0.965),
+      appBar: AppBar(
+        title: const Text(
+          'Precio',
+          style: TextStyle(
+            fontWeight: FontWeight.bold,
+            fontFamily: 'Manrope',
+            fontSize: 35,
+          ),
+        ),
+        actions: [
+          PopupMenuButton<String>(
+            icon: const CircleAvatar(
+              backgroundImage: AssetImage(
+                'lib/images/user_icon_h.png', // Reemplaza con tu imagen
+              ),
+            ),
+            itemBuilder: (context) => [
+              PopupMenuItem(
+                value: 'user',
+                child: ListTile(
+                  leading: const Icon(Icons.person),
+                  title: Text(
+                    widget.user.displayName ?? "Usuario", // Nombre del usuario
+                  ),
+                ),
+              ),
+              const PopupMenuDivider(), // Línea separadora
+              const PopupMenuItem<String>(
+                value: 'logout',
+                child: ListTile(
+                  leading: Icon(Icons.logout),
+                  title: Text('Cerrar sesión'),
+                ),
+              ),
+            ],
+            onSelected: (value) {
+              if (value == 'logout') {
+                // Lógica para cerrar sesión
+                auth.signout();
+                goToLogin(context);
+                // AuthService().logout(); // Tu método de logout
+                Navigator.pushReplacement(
+                  context,
+                  MaterialPageRoute(builder: (context) => const LoginScreen()),
+                );
+              }
+            },
+          ),
+        ],
+        backgroundColor: const Color(0xFF9DD3FB),
+        toolbarHeight: 150,
+        // Campos de texto en la barra de navegación con la ubicación actual.
+        centerTitle: true,
+        bottom: PreferredSize(
+          preferredSize: const Size.fromHeight(60.0), // Adjusted height
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 10.0),
+            child: Container(
+              margin:
+                  const EdgeInsets.only(bottom: 45.0), // Adjust bottom spacing
+              child: TextField(
+                decoration: InputDecoration(
+                  hintText: _currentAddress,
+                  prefixIcon: const Icon(Icons.location_on),
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(30.0),
+                    borderSide: BorderSide.none,
+                  ),
+                  filled: true,
+                  fillColor: Colors.white,
+                  contentPadding: const EdgeInsets.symmetric(
+                      vertical: 0.0, horizontal: 20.0),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const Text(
+              "El precio y la descripción de tu envio",
+              style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 20),
+            Card(
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+              elevation: 5,
+              child: Padding(
+                padding: const EdgeInsets.all(8.0),
+                child: Row(
+                  children: [
+                    Image.asset(
+                      'lib/images/box.png', // Replace with your image asset
+                      width: 150,
+                      height: 80,
+                    ),
+                    const SizedBox(width: 16),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text.rich(
+                          TextSpan(
+                            children: [
+                              const TextSpan(
+                                text: 'Envio - ',
+                                style: TextStyle(
+                                    fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                              TextSpan(
+                                text: widget.envio,
+                                style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.normal),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text.rich(
+                          TextSpan(
+                            children: [
+                              const TextSpan(
+                                text: "Medidas: ",
+                                style: TextStyle(
+                                    fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                              TextSpan(
+                                text: widget.medida,
+                                style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.normal),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Text.rich(
+                          TextSpan(
+                            children: [
+                              const TextSpan(
+                                text: "Máximo ",
+                                style: TextStyle(
+                                    fontSize: 14, fontWeight: FontWeight.bold),
+                              ),
+                              TextSpan(
+                                text: widget.medida != "No aplica"
+                                    ? _getPesoMaximo(widget.envio)
+                                    : "No aplica",
+                                style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.normal),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        Row(
+                          mainAxisSize: MainAxisSize
+                              .min, // Para que el Row se ajuste al contenido
+                          children: [
+                            const Icon(
+                              Icons.shopping_bag, // Icono de dinero
+                              size: 20, // Ajusta el tamaño del icono
+                              color: Colors
+                                  .blue, // Puedes cambiar el color del icono si lo deseas
+                            ),
+                            const SizedBox(
+                                width: 2), // Espacio entre el icono y el texto
+                            Text.rich(
+                              TextSpan(
+                                children: [
+                                  const TextSpan(
+                                    text: "\$ ",
+                                    style: TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                  TextSpan(
+                                    text: _obtenerPrecio(widget.envio)
+                                        .toStringAsFixed(2),
+                                    style: const TextStyle(
+                                        fontSize: 14,
+                                        fontWeight: FontWeight.bold),
+                                  ),
+                                  const TextSpan(
+                                    text: " ARS",
+                                    style: TextStyle(fontSize: 14),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        )
+                      ],
+                    )
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 50),
+            // Botón "Siguiente"
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color.fromARGB(246, 50, 98, 135),
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+              ),
+              onPressed: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => ConfirmarScreen(
+                      user: widget.user,
+                      origen: widget.origen,
+                      destino: widget.destino,
+                      envio: widget.envio,
+                      maximo: _getPesoMaximo(widget.envio),
+                      medida: widget.medida,
+                      precio: _obtenerPrecio(widget.envio).toStringAsFixed(2),
+                    ),
+                  ),
+                );
+                // print("Navegando a ConfirmarScreen");
+              },
+              child: const Text(
+                "Siguiente",
+                style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white),
+              ),
+            ),
+          ],
+        ),
+      ),
+
+      // Barra de navegación inferior
+      bottomNavigationBar: BottomNavigationBar(
+        items: const <BottomNavigationBarItem>[
+          BottomNavigationBarItem(
+            icon: Icon(Icons.home),
+            label: 'Inicio',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.check_circle),
+            label: 'Estado',
+          ),
+          BottomNavigationBarItem(
+            icon: Icon(Icons.verified_user),
+            label: 'Cuenta',
+          ),
+        ],
+        currentIndex: 0,
+        backgroundColor: const Color(0xFF122432),
+        selectedItemColor: Colors.amber[800],
+        unselectedItemColor: const Color(0xFF878D96),
+        onTap: (index) {
+          if (index == 0) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (context) => HomeScreen(user: widget.user)),
+            );
+          } else if (index == 1) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (context) => EstadoScreen(user: widget.user)),
+            );
+          } else if (index == 2) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                  builder: (context) => CuentaScreen(user: widget.user)),
+            );
+          }
+        },
+      ),
+    );
+  }
+
+  goToLogin(BuildContext context) => Navigator.push(
+        context,
+        MaterialPageRoute(builder: (context) => const LoginScreen()),
+      );
+}
